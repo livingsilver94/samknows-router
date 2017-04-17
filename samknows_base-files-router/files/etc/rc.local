@@ -1,0 +1,5 @@
+crontab /etc/crontabs/mycrontab 2>/dev/null
+bwmonitor &
+#start editing now
+
+exit 0

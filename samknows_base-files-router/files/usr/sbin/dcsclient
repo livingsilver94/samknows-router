@@ -1,0 +1,357 @@
+#!/bin/sh
+
+# dcsclient shell script version
+# operations supported:
+#       activation
+#       verison request
+#       package request
+#       submit results
+#       dcs retrival
+
+
+# error when processing a non set variable
+set -u 
+
+# curl command to be used to communicate to the Data Collection Servers
+curlcmd="curl --silent --show-error --connect-timeout 15 --max-time 60"
+
+# script to get the macaddresses for the activaion
+listmacaddresses=/usr/lib/samknows/listmacaddresses.sh
+
+# files used by the dcs client
+tmpdir=/tmp
+resultsfile=${tmpdir}/output
+runonce=${tmpdir}/ispmon/runonce.sh
+samknowsdir=${tmpdir}/samknows
+ispmondir=${tmpdir}/ispmon
+unitidfile="${samknowsdir}/unitid"
+packageversionfile="${samknowsdir}/version"
+dcsfile="${samknowsdir}/dcs"
+packagefile=${tmpdir}/testpackage.tar.gz
+headerfile=${tmpdir}/dcsheadersfile
+
+# headers used to communicate to the DCS
+headerencryption="--header \"X-Encryption-Desired: false\""
+headerencrypt="--header \"X-Encrypted: false\""
+
+#dcs value
+dcs=""
+
+OPTIONS="d:avpsrV"
+usage(){
+	printf "$0 \n"
+	printf "usage:\n"
+	printf " -d <DCS> specify the datacollection server\n"
+	printf " -a activate the unit\n"
+	printf " -v request package version\n"
+	printf " -p download the package\n"
+	printf " -s submit results\n"
+	printf " -r request the dcs to be used\n"
+	printf " -V print verbose output of curl request\n"
+}
+
+# Performs the curl request to the DCS
+# if $verbose is set to true it prints the curl command executed and 
+# its verbose output
+# if curl returns a non zero value or the http code it is not 200
+# the exit code will be 1
+
+request(){
+	local command=$@
+	# dumps headers in order to verify validity of the operation output
+	# if an error is detected outputs the relevant header and its message
+	command="$curlcmd --dump-header ${headerfile} $command"
+	if [ "$verbose" == "true" ]; then
+		printf "Executing request:\n" 1>&2
+		echo $command 1>&2
+		printf "\n" 1>&2
+	fi
+	local response=""
+	response=$(eval $command)
+	ret=$?
+	if [ "$verbose" == "true" ]; then
+		printf "Request exit code: ${ret}\n" 1>&2
+		printf "Request output:\n" 1>&2
+		printf "${response}\n" 1>&2
+	fi
+	if [ "$ret" -ne 0 ]; then
+		printf "cmd failed with code ${ret}. Exit\n" 1>&2
+		exit 1
+	fi
+	# check httpstatus in the header file
+	# prints first line the code
+	# second line the message
+	httpresponse=$(sed -n 's/^HTTP\/1.1 \([^\s]*\) .*/\1/p' ${headerfile} )
+	httpcode=$( echo "$httpresponse" | tail -n 1 )
+	if [ "$httpcode" -ne 200 ]; then
+		printf "HTTP request failed\n" 1>&2
+		echo "$httpresponse"  1>&2
+		exit 1
+	fi
+	echo "${response}" | grep -v "HTTPCODE"
+	exit 0
+}   
+
+# It request the dcs to be used
+# and it saves it to the dcs file (/tmp/samknows/dcs)
+
+requestdcs(){
+	if [ "${dcs}" == "" ]; then
+		printf "dcs not available, provide one in the command line\n"
+		return 1
+	fi
+	# include unit_specific file to get the unit model
+	. /etc/unit_specific
+
+	listmacaddresses="&$($listmacaddresses)"
+	command="\"https://${dcs}/dcs?model=${UNIT_MODEL}&${listmacaddresses}\""
+	response=$(request $command)
+	ret=$?
+	if [ "$ret" -ne 0 ]; then
+		return 1
+	fi
+	printf "$response" > ${dcsfile}
+	return 0
+}
+
+submit(){
+	# if there is no resultsfile, or it is empty do not perform the operation
+	if [ ! -s ${resultsfile} ]; then
+		return 1
+	fi
+	# submit the resultsfile, data-binary it is used ot avoid extra processing by cURL
+	command="${headerunitid} ${headerencrypt} --data-binary @${resultsfile}"
+	command="$command https://${dcs}/submit" 
+	response=$(request $command)
+	ret=$?
+	if [ "$ret" -ne 0 ]; then 
+		return 1
+	fi
+	# remove the results file
+	rm -rf ${resultsfile}
+	return 0
+}
+
+download_lib(){
+	if [ $(opkg list-installed | grep -c $1) == 0 ]; then
+		cd /tmp
+		mkdir libInstall
+		cd libInstall
+		file=$(opkg download $1 | grep -o -m1 "$1.*\.ipk")
+		if [ -z "$file" ]; then
+			echo "depending lib \"$1\" has not been downloaded" >> ${ispmondir}/errors
+			return 1
+		fi
+		tar zxpf $file
+		tar zxpf data.tar.gz
+		mkdir ${ispmondir}/biglib
+		mv ./usr/lib/* ${ispmondir}/biglib
+		cd ..
+		rm -rf libInstall
+		fi
+	return 0
+}
+
+# Downloads the package from the DCS and replaces the current one
+# once the package it is downloaded and uncompressed
+# executes the post installation script
+# it has to be run after the version function
+package(){
+	# if the packageurl 
+	if [ "${packageurl}" == "" ]; then
+		printf "package url missing\n"
+		return 1
+	fi
+	command="${headerunitid} ${headerencryption} -o ${packagefile} \"${packageurl}\""
+	response=$(request $command)
+	ret=$?
+	if [ "$ret" -ne 0 ]; then
+		return 1
+	fi
+	# remove the existing package  
+	rm -rf ${ispmondir}
+	# uncompress and untar the package
+	tar xzvf ${packagefile} -C ${tmpdir}
+	#download missing libs, if any
+	#delete broken links first
+	find -L /usr/lib -type l ! -name 'last*' -exec rm {} \;
+	opkg update
+	download_lib 'libstdcpp'
+	ln -s ${ispmondir}/biglib/* /usr/lib
+	#update the package version
+	packageversion=${remotepackageversion}
+	# execute post install script, but edit it first in order not to override user's crontab
+	sed -i 's/crontab \/tmp.*/(crontab -l ; cat \/tmp\/ispmon\/cron\/crontab)| crontab -/' $runonce
+	${runonce}
+	echo "${packageversion}" > "${packageversionfile}"
+	return 0
+}
+
+# remove all the temporary files created by the script
+clean(){
+	rm -rf ${headerfile}
+	rm -rf ${packagefile}
+}
+
+# Requests the packageversion to the dcs
+# and sets the packageurl to the retrieved value
+version(){
+	command="${headerunitid} ${headerencryption} \"https://${dcs}/version?current=$packageversion\""
+	response=$(request $command)
+	ret=$?
+	if [ "$ret" -ne 0 ]; then
+		return 1 
+	fi
+	lines=$(echo "$response" | wc -l )
+	if [ "$lines" -ne 2 ]; then
+		printf "Version retrival is failed. Response is:\n" 1>&2
+		echo "${response}" 1>&2
+		return 1
+	fi
+	remotepackageversion=$(echo "$response" | head -n 1 | tr -dc "[0-9]." )
+	packageurl=$(echo "$response" | tail -n 1)
+	printf "Current package version is ${packageversion}\n"
+	printf "Remote package version is ${remotepackageversion}\n"
+	printf "Current package path is ${packageurl}\n"
+	return 0 
+}
+
+
+# function that performs the activation and returns the unitid of the device
+# the url for activating is activate?v=2&mac=UNITMACADDRESS
+activation(){
+	mac=$($listmacaddresses)
+	command="\"https://${dcs}/activate?v=2&${mac}\""    
+	response=$(request $command)   
+	ret=$?
+	if [ "$ret" -ne 0 ]; then
+		return 1
+	fi
+	unitid=$response
+	printf "Activation succeded, unitid is $unitid\n" 
+	# save file to the unit id file 
+	printf "$unitid" > $unitidfile
+	return 0
+}
+
+# create the samknows dir if it doesn't already exists
+mkdir -p ${samknowsdir}
+
+# if a dcs file exits read the dcs value from the file
+# in case the -d option is provided this value
+# is replace by the command line value
+if [ -s $dcsfile ]; then
+	dcs=$(cat $dcsfile)
+fi
+
+
+packageurl=""
+packageversion=""
+unitid=""
+action=""
+verbose="false"
+
+#if the script is called with the old syntax make sure the arguments
+#are used correctly
+#old syntax e.g. dcsclient https://dcs.samknows.com:433 -p
+if [ ${1:0:1} != "-" ]; then 
+	
+	dcs=${1#https://}
+	dcs=${dcs%:[0-9]*}
+	shift 
+fi
+
+
+while getopts $OPTIONS opt; do
+	case $opt in
+	d)
+		dcs=$OPTARG
+		;;
+	a)
+		action="activate"
+		;;
+	v)
+		action="version"
+		;;
+	p)  
+		action="package"
+		;;
+	V)
+		curlcmd="$curlcmd -v"
+		verbose="true"
+		;;
+	s)
+		action="submit"
+		;;
+	r)
+		action="requestdcs"
+		;;
+	*)
+		usage
+		exit
+	esac
+done
+
+if [ -s /etc/ca-bundle.crt ]; then
+	curlcmd="$curlcmd --cacert /etc/ca-bundle.crt"
+fi
+
+if [ "$action" == "" ]; then
+	echo "Please specify an action to be performed" 1>&2
+	usage
+	exit
+fi
+
+if [ "$dcs" == "" ]; then
+	echo "DCS is missing" 1>&2
+	usage
+	exit 1
+fi
+
+if [ -s $unitidfile ]; then
+	unitid=$(cat $unitidfile | tr -dc "[0-9]" )
+	headerunitid="--header \"X-Unit-ID: ${unitid}\""
+	printf "Unit id: ${unitid}\n" 1>&2
+fi
+
+if [ -s $packageversionfile ]; then
+	packageversion=$(cat $packageversionfile | tr -dc "[0-9].")
+	printf "Package version: ${packageversion}\n" 1>&2
+fi
+
+ret=0
+if [ "$action" == "activate" ]; then
+	activation
+	ret=$?
+fi
+
+if [ "$action" == "version" ]; then
+	version
+	ret=$?
+	if [ "$ret" -eq 0 -a "$remotepackageversion" != "$packageversion" ]; then
+		package
+		ret=$?
+	fi
+fi
+
+if [ "$action" == "package" ]; then
+	version
+	ret=$?
+	if [ "$ret" -eq 0 ]; then
+		package
+		ret=$?
+	fi
+fi
+
+if [ "$action" == "requestdcs" ]; then
+	requestdcs
+	ret=$?
+fi
+
+if [ "$action" == "submit" ]; then
+	submit
+	ret=$?
+fi
+
+clean
+exit $ret

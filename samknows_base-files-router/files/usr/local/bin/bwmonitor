@@ -1,0 +1,20 @@
+#!/bin/sh
+# author: livingsilver94 from ilpuntotecnicoeadsl.com
+# credits: stackoverflow.com/questions/9976928/parsing-data-from-ifconfig-with-awk-or-sed
+rx_old=0
+tx_old=0
+time=6
+
+while true; do
+        rx_bytes=$(awk '/^pppoe-wan: / {print $2;}' /proc/net/dev)
+        tx_bytes=$(awk '/^pppoe-wan: / {print $10;}' /proc/net/dev)
+        rx_traf=$(( (rx_bytes-rx_old) / time))
+        tx_traf=$(( (tx_bytes-tx_old) / time))
+        rx_old=$rx_bytes
+        tx_old=$tx_bytes
+        echo $rx_traf > /tmp/eth0_rx
+        echo $tx_traf > /tmp/eth0_tx
+        echo 0 | tee /tmp/wlan0_pkt /tmp/wlan1_pkt > /dev/null
+        echo 1 > /tmp/threshold_pcap
+        sleep $time
+done

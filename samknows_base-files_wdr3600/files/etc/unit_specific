@@ -1,0 +1,16 @@
+#---------- Base config ----------
+# The model name sent to the DCS as model parameter
+UNIT_MODEL=wdr3600
+# List of interfaces from where MACs should be obtained when reporting to DCS.
+# The order is important!
+UNIT_MAC0=wlan1
+UNIT_MAC1=eth0
+UNIT_MAC2=wlan0
+# What led to use for our report needs
+UNIT_LED=/sys/class/leds/tp-link:blue:qss
+# WAN interface
+UNIT_WAN_INTERFACE=eth0
+# # LAN interface
+UNIT_LAN_INTERFACE=eth0
+# # HW interface (to get the link information)
+UNIT_HW_INTERFACE=eth0

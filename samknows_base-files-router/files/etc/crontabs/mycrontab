@@ -1,0 +1,2 @@
+0 */3 * * * killall -9 udplatencyclient
+
