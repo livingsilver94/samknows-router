@@ -1,2 +1,2 @@
 # samknows-router
-This repository in based on cone provided at https://files.samknows.com/~gpl/
+This repository is based on code provided at https://files.samknows.com/~gpl/
