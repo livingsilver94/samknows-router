@@ -10,7 +10,7 @@ define Package/samknows_base-files-router
   SECTION:=samknows
   CATEGORY:=SamKnows
   TITLE:=SamKnows base-files for routers
-  URL:=https//www.ilpuntotecnicoeadsl.com
+  URL:=https://www.ilpuntotecnicoeadsl.com
   DEPENDS:=+openssl +curl
 endef
 
