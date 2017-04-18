@@ -10,6 +10,7 @@ define Package/samknows_base-files_wdr3600
   SECTION:=samknows
   CATEGORY:=SamKnows
   TITLE:=SamKnows base-files
+  PKGARCH:=all
   DEPENDS:= +samknows_base-files-router
 endef
 
