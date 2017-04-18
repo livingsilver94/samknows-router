@@ -6,8 +6,9 @@ tx_old=0
 time=6
 
 while true; do
-        rx_bytes=$(awk '/^pppoe-wan: / {print $2;}' /proc/net/dev)
-        tx_bytes=$(awk '/^pppoe-wan: / {print $10;}' /proc/net/dev)
+	values=$(awk '/^pppoe-wan: / {print $2"\n"$10;exit}' /proc/net/dev)
+        rx_bytes=$(echo "$values" | head -n1)
+        tx_bytes=$(echo "$values" | tail -n1)
         rx_traf=$(( (rx_bytes-rx_old) / time))
         tx_traf=$(( (tx_bytes-tx_old) / time))
         rx_old=$rx_bytes
