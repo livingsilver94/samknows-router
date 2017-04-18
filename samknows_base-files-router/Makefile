@@ -14,15 +14,16 @@ define Package/samknows_base-files-router
   DEPENDS:=+openssl +curl
 endef
 
-define Package/samknows/config
+define Package/samknows_base-files-router/config
   select BUSYBOX_CONFIG_ASH_RANDOM_SUPPORT
   select BUSYBOX_CONFIG_ROUTE
+  select BUSYBOX_CONFIG_IP if !PACKAGE_ip-full
 endef
 
 define Build/Compile
 endef
 
-define Package/samknows/install
+define Package/samknows_base-files-router/install
     $(CP) ./files/* $(1)
 endef
 
