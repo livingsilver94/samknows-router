@@ -5,7 +5,8 @@ rx_old=0
 tx_old=0
 time=6
 
-while : do
+while :
+do
 	values=$(awk '/^pppoe-wan: / {print $2"\n"$10;exit}' /proc/net/dev)
         rx_bytes=$(echo "$values" | head -n1)
         tx_bytes=$(echo "$values" | tail -n1)
