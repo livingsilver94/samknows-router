@@ -11,7 +11,7 @@ define Package/samknows_base-files-router
   CATEGORY:=SamKnows
   TITLE:=SamKnows base-files for routers
   URL:=https://www.ilpuntotecnicoeadsl.com
-  DEPENDS:=+openssl +curl
+  DEPENDS:=+libopenssl +curl
 endef
 
 define Package/samknows_base-files-router/config
